@@ -111,12 +111,15 @@ summary small{color:var(--sub);font-weight:400;margin-left:6px}
 
 /* A4 の紙 */
 .a4{width:210mm;height:297mm;background:#fff;color:#000;position:relative;overflow:hidden;padding:10mm}
-table.slipt{border-collapse:collapse;table-layout:fixed}
-.slipt{margin:0 auto}
-.slipt td{padding:0;vertical-align:top;border:1pt solid #000}
-.slipt td.emp{border:none}
-.slipt.dash td{border:1pt dashed #555}
-.slipt.none td{border:1pt solid transparent}
+/* わく：表ではなく、1枚ずつの四角に線を引く（どのブラウザで印刷しても消えないように） */
+.sheet{margin:0 auto;--ln:1pt solid #000}
+.sheet.dash{--ln:1pt dashed #555}
+.sheet.none{--ln:1pt solid transparent}
+.srow{display:flex}
+.cell{flex:none;box-sizing:border-box;padding:3mm;border-right:var(--ln);border-bottom:var(--ln);overflow:hidden;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.cell.l{border-left:var(--ln)}
+.cell.t{border-top:var(--ln)}
+.cell.emp{border-color:transparent}
 .slip{overflow:hidden;white-space:normal;word-break:break-all;line-break:strict}
 .slip p{margin:0;white-space:pre-wrap;min-height:1em}
 .slip .c{text-align:center}
@@ -314,7 +317,8 @@ function slipInner(sl) {
 }
 const slipClass = () => `slip ul${S.dir === 'tate' ? ' tate' : ''}`;
 const fontCss = () => `font-family:${FONTS[S.font].replace(/"/g, '&quot;')};font-size:${S.size}pt;line-height:${LH}`;
-function slipStyle(hmm) { return `width:${S.width - PAD * 2}mm;height:${hmm - PAD * 2}mm;margin:${PAD}mm;${fontCss()}`; }
+const BW = 0.8;   // 線の太さぶん（mm）
+function slipStyle(hmm) { return `width:${S.width - PAD * 2 - BW}mm;height:${hmm - PAD * 2 - BW}mm;${fontCss()}`; }
 const cols = () => Math.max(1, Math.floor((PAGE_W + 0.01) / S.width));
 
 /* ---- たての長さ：文章がぴったり入る長さ（mm） ---- */
@@ -326,14 +330,17 @@ function heightOf(inner) {
   if (S.dir === 'tate') {   // 縦書き：よこはばに入る一番みじかい高さをさがす
     box.innerHTML = `<div class="${slipClass()}" style="${slipStyle(40)}">${inner}</div>`;
     const el = box.firstChild, ok = h => { el.style.height = h + 'mm'; return el.scrollWidth <= el.clientWidth + 1; };
-    let lo = 8, hi = 400;
-    if (!ok(hi)) mm = hi; else { while (hi - lo > 0.5) { const m = (lo + hi) / 2; if (ok(m)) hi = m; else lo = m; } mm = hi; }
+    // 短い文が「Cさ／ん」のように折れないよう、いちばん長い行の長さ（ただし紙のよこはばまで）より短くしない
+    el.style.height = 'max-content'; const nat = el.getBoundingClientRect().height * PX2MM;
+    let lo = Math.max(8, Math.min(nat + 0.5, S.width - PAD * 2)), hi = 400;
+    if (ok(lo)) mm = lo;
+    else if (!ok(hi)) mm = hi; else { while (hi - lo > 0.5) { const m = (lo + hi) / 2; if (ok(m)) hi = m; else lo = m; } mm = hi; }
   } else {
-    box.innerHTML = `<div class="${slipClass()}" style="width:${S.width - PAD * 2}mm;${fontCss()}">${inner}</div>`;
+    box.innerHTML = `<div class="${slipClass()}" style="width:${S.width - PAD * 2 - BW}mm;${fontCss()}">${inner}</div>`;
     mm = box.firstChild.getBoundingClientRect().height * PX2MM;
   }
   box.innerHTML = '';
-  const h = Math.ceil((mm + PAD * 2 + 0.6) * 2) / 2;
+  const h = Math.ceil((mm + PAD * 2 + BW + 0.6) * 2) / 2;
   hCache.set(key, h); return h;
 }
 
@@ -370,17 +377,21 @@ function compute() {
   return cur;
 }
 function pageHtml(rows) {
-  const C = cur.C || cols(); let tr = '';
-  for (const { row, rh } of rows) {
-    let tds = '';
+  const C = cur.C || cols(); let h = '';
+  rows.forEach(({ row, rh }, r) => {
+    let cells = '';
     for (let c = 0; c < C; c++) {
-      const s = row[c];
-      tds += s ? `<td style="width:${S.width}mm;height:${rh}mm"><div class="${slipClass()}" style="${slipStyle(rh)}">${s.inner}</div></td>` : '<td class="emp"></td>';
+      const s = row[c], prev = c > 0 && row[c - 1];
+      // 上の線：1段めか、上の段にこの列の紙がないとき
+      const above = r > 0 && rows[r - 1].row[c];
+      const cls = ['cell', !s ? 'emp' : '', s && !prev ? 'l' : '', s && !above ? 't' : ''].filter(Boolean).join(' ');
+      cells += `<div class="${cls}" style="width:${S.width}mm;height:${rh}mm">${s ? `<div class="${slipClass()}" style="${slipStyle(rh)}">${s.inner}</div>` : ''}</div>`;
     }
-    tr += `<tr>${tds}</tr>`;
-  }
-  return `<div class="a4"><table class="slipt ${S.line === 'solid' ? '' : S.line}">${tr}</table></div>`;
+    h += `<div class="srow">${cells}</div>`;
+  });
+  return `<div class="a4"><div class="sheet ${S.line === 'solid' ? '' : S.line}" style="width:${C * S.width}mm">${h}</div></div>`;
 }
+
 const pagesHtml = () => cur.pages.map(pageHtml).join('');
 const cm = mm => (Math.round(mm / 10 * 10) / 10).toFixed(1);
 
