@@ -1,6 +1,6 @@
 {
-  "name": "連絡帳プリント",
-  "short_name": "連絡帳プリント",
+  "name": "連絡帳メーカー",
+  "short_name": "連絡帳メーカー",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#ffffff",
