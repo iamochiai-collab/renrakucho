@@ -76,6 +76,9 @@ input:focus,textarea:focus{outline:2px solid var(--pri-l);border-color:var(--pri
 .tag.ng{background:var(--ng-l);color:var(--ng)}
 .etool{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
 .etool .btn.sm{padding:4px 9px;gap:4px}
+.etool.fmt{margin-top:-2px;align-items:center;background:#fafaf8;border:1.5px solid var(--line);border-radius:12px;padding:6px 8px}
+.etool.fmt .lab{font-size:12.5px;color:var(--sub);font-weight:700;margin-right:2px}
+.etool.fmt .btn.sm{box-shadow:1px 1px 0 var(--pen)}
 .etool .ico.bi{width:22px;height:22px}
 .ico{display:inline-block;background-size:contain;background-repeat:no-repeat;background-position:center;flex:none}
 .ico.bi{width:24px;height:24px;margin:-5px 0 -5px -2px}
@@ -125,6 +128,8 @@ summary small{color:var(--sub);font-weight:400;margin-left:6px}
 .slip .c{text-align:center}
 .slip.ul .c{text-decoration:underline;text-underline-offset:.15em}
 .slip .r{text-align:right}
+.slip .u{text-decoration:underline;text-underline-offset:.15em}
+.slip .bd{font-weight:700}
 .slip.tate{writing-mode:vertical-rl}
 .slip.tate .c{text-align:center}
 .slip.tate .r{text-align:end}
@@ -207,6 +212,15 @@ summary small{color:var(--sub);font-weight:400;margin-left:6px}
         <button class="btn sm" data-ins="sep" title="入力中のところに区切りの線を入れます。そこで紙が分かれます"><i class="ico bi x-cut"></i>--- 区切り</button>
         <button class="btn sm" data-ins="name" title="入力中のところに【名前】を入れます"><i class="ico bi x-name"></i>【名前】</button>
       </div>
+      <div class="etool fmt">
+        <span class="lab">えらんだ語句を→</span>
+        <button class="btn sm" data-wrap="下" title="えらんだ語句に下線を引きます（【下】…【/下】）"><u>下線</u></button>
+        <button class="btn sm" data-wrap="太" title="えらんだ語句を太くします（【太】…【/太】）"><b>太字</b></button>
+        <button class="btn sm" data-wrap="大" title="えらんだ語句を1.25倍の大きさにします（【大】…【/大】）">大きく</button>
+        <button class="btn sm" data-wrap="特大" title="えらんだ語句を1.5倍の大きさにします（【特大】…【/特大】）">もっと大きく</button>
+        <button class="btn sm" data-wrap="小" title="えらんだ語句を0.85倍の大きさにします（【小】…【/小】）"><small>小さく</small></button>
+        <button class="btn sm" data-unwrap title="えらんだところ（えらんでいなければその行）の下線・太字・大きさをもとにもどします">もどす</button>
+      </div>
       <textarea id="src" spellcheck="false" placeholder="ここに文章をはりつけます"></textarea>
       <div class="row" style="margin-top:6px"><span class="hint" id="srcInfo" style="margin:0"></span></div>
       <div class="note">
@@ -214,6 +228,7 @@ summary small{color:var(--sub);font-weight:400;margin-left:6px}
         ・<code>【中】</code> のある行は<b>まん中</b>、<code>【右】</code> のある行は<b>右よせ</b>になります（【中】【右】は印刷されません）<br>
         ・<code>---</code> の行で、<b>紙がべつべつ</b>に分かれます（一人ずつ文がちがうとき）<br>
         ・<code>【名前】</code> のところに、下で入れた名前が1枚ずつ入ります<br>
+        ・語句をえらんで「下線」「大きく」などをおすと、<code>【下】語句【/下】</code> のようにはさまれて、<b>そこだけ</b>下線・太字・大きさが変わります<br>
         どれも、上のボタンをおすと入力中のところに入ります。
       </div>
       <details id="nameBox">
@@ -304,14 +319,36 @@ function nameList() { return String(S.names).split(/\r?\n/).map(s => s.trim()).f
 const tateNum = s => s.replace(/:/g, '：').replace(/[0-9]+/g, d => d.length <= 2 ? `<span class="tcy">${d}</span>` : d.replace(/[0-9]/g, x => String.fromCharCode(x.charCodeAt(0) + 0xFEE0)))
   .replace(/[!?]{1,2}/g, d => `<span class="tcy">${d}</span>`);
 const MK = /[【\[［](中|右)[】\]］]/, MKG = /[【\[［](?:中|右)[】\]］]\s*/g;
+// 語句の印：【下】【太】【大】【特大】【小】…【/下】など（1行の中だけ）
+const INL = { '下': 'u', '太': 'b', '大': 1.25, '特大': 1.5, '小': 0.85 };
+const INL_RE = /【[\/／]?(?:下|太|特大|大|小)】/g;
+function runs(line) {
+  const out = [], st = { u: 0, b: 0, k: [] }; let last = 0;
+  const push = s => { if (s) out.push({ t: s, u: st.u > 0, b: st.b > 0, k: st.k.reduce((a, x) => a * x, 1) }); };
+  line.replace(INL_RE, (m, i) => {
+    push(line.slice(last, i)); last = i + m.length;
+    const close = /[\/／]/.test(m), v = INL[m.replace(/[【】\/／]/g, '')];
+    if (v === 'u') st.u = Math.max(0, st.u + (close ? -1 : 1));
+    else if (v === 'b') st.b = Math.max(0, st.b + (close ? -1 : 1));
+    else if (close) { const j = st.k.lastIndexOf(v); if (j >= 0) st.k.splice(j, 1); }
+    else st.k.push(v);
+    return m;
+  });
+  push(line.slice(last));
+  return out;
+}
 function slipInner(sl) {
   return String(sl.t).split('\n').map(line => {
     let cls = '';
     const m = line.match(MK);
     if (m) { cls = m[1] === '中' ? 'c' : 'r'; line = line.replace(MKG, '').replace(/^\s+/, ''); }
-    let h = esc(line).replace(/【名前】/g, esc(sl.name || '　　　　'));
-    if (S.dir === 'tate') h = tateNum(h);
-    if (!line.trim()) h = '<span class="blank">・</span>';
+    const rs = runs(line.replace(/【名前】/g, sl.name || '　　　　'));
+    let h = rs.map(r => {
+      let x = esc(r.t); if (S.dir === 'tate') x = tateNum(x);
+      if (!r.u && !r.b && r.k === 1) return x;
+      return `<span class="${[r.u ? 'u' : '', r.b ? 'bd' : ''].join(' ').trim()}"${r.k !== 1 ? ` style="font-size:${+r.k.toFixed(3)}em"` : ''}>${x}</span>`;
+    }).join('');
+    if (!rs.some(r => r.t.trim())) h = '<span class="blank">・</span>';
     return `<p${cls ? ` class="${cls}"` : ''}>${h}</p>`;
   }).join('');
 }
@@ -500,6 +537,31 @@ $$('[data-ins]').forEach(b => {
     }
   };
 });
+// えらんだ語句を【下】…【/下】などではさむ（1行ずつ）
+function lineRange(v, s, e) {
+  const a = v.lastIndexOf('\n', s - 1) + 1; let z = v.indexOf('\n', e); if (z < 0) z = v.length; return [a, z];
+}
+$$('[data-wrap]').forEach(b => {
+  b.addEventListener('mousedown', e => e.preventDefault());
+  b.onclick = () => {
+    const ta = $('#src'), v = ta.value, k = b.dataset.wrap, op = `【${k}】`, cl = `【/${k}】`;
+    let s = ta.selectionStart ?? v.length, e = ta.selectionEnd ?? s;
+    if (s === e) { putText(ta, s, e, op + cl, s + op.length, s + op.length); toast('【' + k + '】と【/' + k + '】のあいだに語句を書いてください'); return; }
+    const txt = v.slice(s, e).split('\n').map(l => {
+      const m = l.match(/^(\s*)(.*?)(\s*)$/); return m[2] ? m[1] + op + m[2] + cl + m[3] : l;
+    }).join('\n');
+    putText(ta, s, e, txt, s, s + txt.length);
+  };
+});
+$('[data-unwrap]').addEventListener('mousedown', e => e.preventDefault());
+$('[data-unwrap]').onclick = () => {
+  const ta = $('#src'), v = ta.value;
+  let s = ta.selectionStart ?? 0, e = ta.selectionEnd ?? s;
+  if (s === e) [s, e] = lineRange(v, s, e);
+  const old = v.slice(s, e), txt = old.replace(INL_RE, '');
+  if (txt === old) { toast('もどすところがありません'); return; }
+  putText(ta, s, e, txt, s, s + txt.length);
+};
 $('#pasteBtn').onclick = async () => {
   try {
     const t = await navigator.clipboard.readText();
@@ -612,14 +674,19 @@ const WNS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/ma
 const TW = mm => Math.round(mm * 1440 / 25.4);
 function wordLines(sl) {   // 1枚ぶんの段落
   const F = WFONT[S.font], sz = Math.round(+S.size * 2), line = Math.round(+S.size * LH * 20);
-  const rpr = u => `<w:rPr><w:rFonts w:ascii="${xEsc(F)}" w:eastAsia="${xEsc(F)}" w:hAnsi="${xEsc(F)}" w:hint="eastAsia"/>${u ? '<w:u w:val="single"/>' : ''}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr>`;
+  const rpr = (u, b, k = 1) => { const z = Math.round(sz * k); return `<w:rPr><w:rFonts w:ascii="${xEsc(F)}" w:eastAsia="${xEsc(F)}" w:hAnsi="${xEsc(F)}" w:hint="eastAsia"/>${b ? '<w:b/><w:bCs/>' : ''}${u ? '<w:u w:val="single"/>' : ''}<w:sz w:val="${z}"/><w:szCs w:val="${z}"/></w:rPr>`; };
   return String(sl.t).split('\n').map(l => {
     let jc = '';
     const m = l.match(MK);
     if (m) { jc = m[1] === '中' ? 'center' : 'right'; l = l.replace(MKG, '').replace(/^\s+/, ''); }
-    l = l.replace(/【名前】/g, sl.name || '　　　　');
-    if (S.dir === 'tate') l = l.replace(/:/g, '：').replace(/[0-9!?]/g, x => String.fromCharCode(x.charCodeAt(0) + 0xFEE0));
-    return `<w:p><w:pPr><w:snapToGrid w:val="0"/><w:spacing w:before="0" w:after="0" w:line="${line}" w:lineRule="exact"/>${jc ? `<w:jc w:val="${jc}"/>` : '<w:jc w:val="left"/>'}${rpr(false)}</w:pPr>${l ? `<w:r>${rpr(jc === 'center')}<w:t xml:space="preserve">${xEsc(l)}</w:t></w:r>` : ''}</w:p>`;
+    const rs = runs(l.replace(/【名前】/g, sl.name || '　　　　'));
+    const kmax = Math.max(1, ...rs.map(r => r.k)), lh = Math.round(line * kmax);   // 大きい字の行は行の高さも広げる
+    const body = rs.map(r => {
+      let x = r.t;
+      if (S.dir === 'tate') x = x.replace(/:/g, '：').replace(/[0-9!?]/g, c => String.fromCharCode(c.charCodeAt(0) + 0xFEE0));
+      return `<w:r>${rpr(r.u || jc === 'center', r.b, r.k)}<w:t xml:space="preserve">${xEsc(x)}</w:t></w:r>`;
+    }).join('');
+    return `<w:p><w:pPr><w:snapToGrid w:val="0"/><w:spacing w:before="0" w:after="0" w:line="${lh}" w:lineRule="exact"/>${jc ? `<w:jc w:val="${jc}"/>` : '<w:jc w:val="left"/>'}${rpr(false, false)}</w:pPr>${body}</w:p>`;
   }).join('');
 }
 function buildDocx() {
